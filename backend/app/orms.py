@@ -1,3 +1,4 @@
+from enum import Enum
 from pydantic import BaseModel, validator
 
 from app.utils import hash_pass
@@ -17,3 +18,15 @@ class RegisterReq(LoginReq):
 
 class GenericResp(BaseModel):
     message: str
+
+class CommentReq(BaseModel):
+    text: str
+    post_id: int
+
+class Entities(str, Enum):
+    post = "post"
+    comment = "comment"
+
+class ToggleLikeReq(BaseModel):
+    entity: Entities
+    ent_id: int # this can be post_id or comment_id based on the value of entity
