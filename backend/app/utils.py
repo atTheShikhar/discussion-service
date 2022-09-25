@@ -6,6 +6,8 @@ from jose import jwt
 import bcrypt
 import boto3
 import time, random, string
+from typing import Optional
+from . import orms
 
 creds_dict = dotenv_values(".env")
 
@@ -16,6 +18,7 @@ PWD_ENCODING = "utf-8"
 AWS_KEY_ID = creds_dict["AWS_KEY_ID"]
 AWS_SECRET_KEY = creds_dict["AWS_SECRET_KEY"]
 AWS_S3_BUCKET = creds_dict["AWS_S3_BUCKET"]
+MEDIA_BASE_URL = creds_dict["MEDIA_BASE_URL"]
 
 s3_client = boto3.client(
     "s3",
@@ -26,6 +29,12 @@ s3_client = boto3.client(
 def paginate(page, limit):
     offset = (page - 1) * limit
     return offset
+
+# utility function to convert sql query response (tuple) to a dictionary
+def sqltuple2dict(conn_cursor):
+    columns = [col[0] for col in conn_cursor.description] 
+    data = [dict(zip(columns, row)) for row in conn_cursor.fetchall()]
+    return data
 
 def generate_filename(input_filename: str):
     ext = input_filename.split(".")[-1]
@@ -53,7 +62,6 @@ def decode_token(token: str = Header(...)):
         logging.exception(e)
         raise HTTPException(401, "Unauthorised!")
 
-
 def hash_pass(password: str):
     return bcrypt.hashpw(password.encode(PWD_ENCODING), bcrypt.gensalt())
 
@@ -65,3 +73,14 @@ def is_valid_image_file(content_type: str):
     if content_type not in allowed_types:
         raise HTTPException(400, "Invalid image type. Only .png and .jpeg are allowed!")
     return True
+
+def unique_userid_from_posts(posts: list[dict]):
+    return set([i["user_id"] for i in posts])
+
+def find_in_dictlist(l: list, k: str, v) -> Optional[dict]:
+    for i, dic in enumerate(l):
+        if dic.dict()[k] == v: return dic
+    return None
+
+num_list2comma_string = lambda a: ','.join(list(map(lambda i: str(i), a)))
+# def map_user_to_posts(users: list[orms.User], posts: list[dict]):

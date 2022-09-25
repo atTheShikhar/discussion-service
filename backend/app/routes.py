@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Form, UploadFile, File, Depends
 from typing import Optional, Union
 from . import orms
 from . import actions
-from .utils import check_pass, gen_token, decode_token, generate_filename, is_valid_image_file, upload_file
+from .utils import check_pass, find_in_dictlist, gen_token, decode_token, generate_filename, is_valid_image_file, upload_file, unique_userid_from_posts
 
 router = APIRouter(tags=["Discussion Apis"])
 
@@ -37,13 +37,13 @@ async def register_new_user(req: orms.LoginReq):
 @router.post("/add-post")
 async def ask_a_question(
     title: str = Form(),
-    desc: Optional[str] = Form(None),
+    text: Optional[str] = Form(None),
     image: Union[UploadFile, None] = File(default=None),
     token_data = Depends(decode_token)
 ):
     user_id = token_data["user_id"]
     has_media = image != None
-    actions.save_post(title, desc, user_id, has_media)
+    actions.save_post(title, text, user_id, has_media)
     post_id = actions.get_last_saved_post_id(user_id)
 
     if has_media and is_valid_image_file(image.content_type):
@@ -66,6 +66,7 @@ async def add_comment_to_post(req: orms.CommentReq, token_data = Depends(decode_
     return orms.GenericResp(message="Comment added successfully!")
 
 
+# This route act as a dual to like either a post or a comment based on the request body
 @router.post("/toggle-like")
 async def toggle_like(req: orms.ToggleLikeReq, token_data = Depends(decode_token)):
     user_id = token_data["user_id"]
@@ -81,3 +82,31 @@ async def toggle_like(req: orms.ToggleLikeReq, token_data = Depends(decode_token
     actions.toggle_like_count(entity, ent_id, not is_liked)
     return orms.GenericResp(message=f"{entity.capitalize()} {'disliked' if is_liked else 'liked'}!")
 
+
+@router.get("/search-post")
+async def search_post(
+    search_by: orms.SearchPostOptions,
+    search_term: str, 
+    page: int = 1,
+    limit: int = 10,
+    token_data = Depends(decode_token)
+):
+    if search_by == "author":
+        user = actions.search_user_single(search_term)
+        if not user:
+            return []
+        posts = actions.get_posts_by_userid(user.user_id, page, limit) 
+        return [orms.PostBase(**dict(post, **{'user': user})) for post in posts] # add userdata and to post list and return 
+
+    if search_by == "title" or search_by == "text":
+        # replace spaces with commas in order to make it compatible with full text search
+        search_term = search_term.replace(" ", ",") 
+        posts = actions.full_text_post_search(search_by, search_term, page, limit)
+        if not posts:
+            return []
+        unique_user_id = unique_userid_from_posts(posts) 
+        users = actions.get_user_by_userid_list(unique_user_id)
+        # attach userdata to their respective posts
+        return [orms.PostBase(**dict(post, **{'user': find_in_dictlist(users, "user_id", post["user_id"])})) for post in posts]
+        
+    raise HTTPException(400, "Invalid request!")
